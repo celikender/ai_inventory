@@ -1,2 +1,16 @@
 .env
 .venv
+__pycache__/
+*.pyc
+storage/photos/
+storage/inventory.db
+storage/inventory.db-*
+storage/*.db
+storage/*.db-*
+
+__pycache__/
+*.pyc
+.env
+.venv/
+storage/photos/
+storage/inventory.db*/n
