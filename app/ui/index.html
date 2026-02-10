@@ -1,0 +1,457 @@
+<!-- app/ui/index.html (full file) -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Inventory UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .card { border: 1px solid #ddd; padding: 12px; border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f5f5f5; text-align: left; }
+    input[type="text"], input[type="number"], select { padding: 6px; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 10px; cursor: pointer; }
+    pre { background: #111; color: #eee; padding: 10px; overflow: auto; }
+    .warn { color: #b45309; }
+    .err { color: #b91c1c; }
+    .ok { color: #065f46; }
+    .split { display:flex; gap:12px; flex-wrap:wrap; }
+    .col { flex:1; min-width:320px; }
+    .col2 { flex:2; min-width:520px; }
+    .muted { color:#666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h2>AI Inventory</h2>
+
+  <div class="row">
+    <div class="card">
+      <div><b>Project</b></div>
+      <div class="row">
+        <select id="projectSelect"></select>
+        <button onclick="refreshProjects()">Refresh</button>
+      </div>
+      <div class="row">
+        <input id="projectName" type="text" placeholder="new project name" />
+        <button onclick="createProject()">Create</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div><b>Shelf</b></div>
+      <div class="row">
+        <select id="shelfSelect"></select>
+        <button onclick="refreshShelves()">Refresh</button>
+      </div>
+      <div class="row">
+        <input id="shelfName" type="text" placeholder="new shelf name" />
+        <button onclick="createShelf()">Create</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div><b>Actions</b></div>
+      <div class="row">
+        <input id="expectedBins" type="number" min="1" max="200" value="2" />
+        <button onclick="setupAnalyze()">Setup Analyze</button>
+      </div>
+
+      <div class="row">
+        <button onclick="scan()">Scan</button>
+        <button onclick="loadBins()">Load Bins</button>
+      </div>
+
+      <div class="row">
+        <label style="display:flex; gap:8px; align-items:center;">
+          <input id="autoScanEnabled" type="checkbox" />
+          Auto Scan
+        </label>
+      </div>
+
+      <div class="row">
+        <div style="min-width:220px;">
+          <div class="muted">Sensitivity threshold (higher = less triggers)</div>
+          <input id="autoScanThreshold" type="number" step="0.01" min="0.01" max="0.30" value="0.06" />
+        </div>
+        <button onclick="applyAutoScan()">Apply</button>
+      </div>
+
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <div class="split">
+    <div class="card col">
+      <div><b>Latest photo</b></div>
+      <div id="photoMeta" class="muted" style="margin:8px 0;"></div>
+      <img id="latestPhoto" style="width:100%; border:1px solid #ddd; border-radius:8px;" />
+    </div>
+
+    <div class="card col2">
+      <div class="row" style="justify-content: space-between; align-items:center;">
+        <div><b>Bins</b></div>
+        <div id="counts"></div>
+      </div>
+      <div id="binsTable"></div>
+    </div>
+  </div>
+
+  <div class="split" style="margin-top:12px;">
+    <div class="card col">
+      <div><b>Warnings</b></div>
+      <div id="warnings"></div>
+    </div>
+
+    <div class="card col">
+      <div><b>Auto Scan Log</b></div>
+      <pre id="autoscanLog" style="background:#111; color:#eee; padding:10px; overflow:auto; height:160px;"></pre>
+    </div>
+
+    <div class="card col2">
+      <div><b>Output</b></div>
+      <pre id="output"></pre>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "/projects";
+
+function el(id){ return document.getElementById(id); }
+
+function setStatus(msg, cls=""){
+  const s = el("status");
+  s.className = cls;
+  s.textContent = msg;
+}
+
+function showOutput(obj){
+  el("output").textContent =
+    (typeof obj === "string") ? obj : JSON.stringify(obj, null, 2);
+}
+
+async function api(path, opts={}){
+  const res = await fetch(path, opts);
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!res.ok){
+    const err = new Error("HTTP " + res.status);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+function escapeHtml(s){
+  return (s||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+function escapeAttr(s){
+  return escapeHtml(s).replaceAll('"',"&quot;");
+}
+
+async function refreshProjects(){
+  const projects = await api(API_BASE);
+  const sel = el("projectSelect");
+  sel.innerHTML = "";
+  for (const p of projects){
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.id + " - " + p.name;
+    sel.appendChild(o);
+  }
+  await refreshShelves();
+}
+
+async function createProject(){
+  const name = el("projectName").value.trim();
+  if (!name) return;
+
+  const p = await api(API_BASE, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({name})
+  });
+
+  el("projectName").value = "";
+  await refreshProjects();
+  el("projectSelect").value = p.id;
+  await refreshShelves();
+}
+
+async function refreshShelves(){
+  const pid = el("projectSelect").value;
+  const sel = el("shelfSelect");
+  sel.innerHTML = "";
+  if (!pid) return;
+
+  const shelves = await api(API_BASE + "/" + pid + "/shelves");
+  for (const s of shelves){
+    const o = document.createElement("option");
+    o.value = s.id;
+    o.textContent = s.id + " - " + s.name;
+    sel.appendChild(o);
+  }
+
+  await loadBins();
+  await loadLatestPhoto();
+  await loadAutoScanStatus();
+}
+
+async function createShelf(){
+  const pid = el("projectSelect").value;
+  const name = el("shelfName").value.trim();
+  if (!pid || !name) return;
+
+  const s = await api(API_BASE + "/" + pid + "/shelves", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({name})
+  });
+
+  el("shelfName").value = "";
+  await refreshShelves();
+  el("shelfSelect").value = s.id;
+  await loadBins();
+  await loadLatestPhoto();
+  await loadAutoScanStatus();
+}
+
+function renderBins(bins){
+  if (!bins || bins.length === 0){
+    el("binsTable").innerHTML = "<i>No bins yet</i>";
+    return;
+  }
+
+  let rows = "";
+  for (const b of bins){
+    rows +=
+      "<tr>" +
+      "<td>" + b.id + "</td>" +
+      "<td>" + escapeHtml(b.bin_code || "") + "</td>" +
+      "<td><input data-id=\"" + b.id + "\" data-field=\"product_name\" type=\"text\" value=\"" + escapeAttr(b.product_name || "") + "\" /></td>" +
+      "<td><input data-id=\"" + b.id + "\" data-field=\"description\" type=\"text\" value=\"" + escapeAttr(b.description || "") + "\" /></td>" +
+      "<td><input data-id=\"" + b.id + "\" data-field=\"qty\" type=\"number\" value=\"" + (b.qty ?? "") + "\" /></td>" +
+      "<td><button onclick=\"saveRow(" + b.id + ")\">Save</button></td>" +
+      "</tr>";
+  }
+
+  el("binsTable").innerHTML =
+    "<table>" +
+    "<thead><tr><th>id</th><th>bin_code</th><th>product_name</th><th>description</th><th>qty</th><th>actions</th></tr></thead>" +
+    "<tbody>" + rows + "</tbody>" +
+    "</table>";
+}
+
+async function loadBins(){
+  const pid = el("projectSelect").value;
+  const sid = el("shelfSelect").value;
+  if (!pid || !sid) return;
+
+  const bins = await api(API_BASE + "/" + pid + "/shelves/" + sid + "/bins");
+  renderBins(bins);
+  el("counts").textContent = "bins: " + bins.length;
+}
+
+async function saveRow(binId){
+  const inputs = document.querySelectorAll("input[data-id=\"" + binId + "\"]");
+  const patch = {};
+
+  for (const i of inputs){
+    const field = i.getAttribute("data-field");
+    if (field === "qty"){
+      const v = i.value;
+      patch.qty = (v === "") ? null : parseInt(v, 10);
+    } else {
+      patch[field] = (i.value === "") ? null : i.value;
+    }
+  }
+
+  try{
+    const updated = await api(API_BASE + "/bins/" + binId, {
+      method: "PATCH",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(patch)
+    });
+    setStatus("Saved", "ok");
+    showOutput(updated);
+    await loadBins();
+  } catch(e){
+    setStatus("Save failed", "err");
+    showOutput(e.data || e.toString());
+  }
+}
+
+function renderWarnings(warnings){
+  const box = el("warnings");
+  if (!warnings || warnings.length === 0){
+    box.innerHTML = "<span class='ok'>No warnings</span>";
+    return;
+  }
+  let html = "";
+  for (const w of warnings){
+    html += "<div class='warn'>bin " + escapeHtml(w.bin_code) + ": " + escapeHtml(w.warning) +
+            "<br/>expected: " + escapeHtml(w.expected) +
+            "<br/>observed: " + escapeHtml(w.observed) +
+            "</div>";
+  }
+  box.innerHTML = html;
+}
+
+async function setupAnalyze(){
+  const pid = el("projectSelect").value;
+  const sid = el("shelfSelect").value;
+  const expected = parseInt(el("expectedBins").value || "1", 10);
+  if (!pid || !sid) return;
+
+  setStatus("Running setup_analyze...", "");
+  try{
+    const r = await api(API_BASE + "/" + pid + "/shelves/" + sid + "/setup_analyze?expected_bins=" + expected, { method: "POST" });
+    setStatus("Setup complete", "ok");
+    showOutput(r);
+    renderWarnings(r.warnings || []);
+    await loadBins();
+    await loadLatestPhoto();
+  } catch(e){
+    setStatus("Setup failed", "err");
+    showOutput(e.data || e.toString());
+  }
+}
+
+async function scan(){
+  const pid = el("projectSelect").value;
+  const sid = el("shelfSelect").value;
+  if (!pid || !sid) return;
+
+  setStatus("Scanning...", "");
+  el("warnings").innerHTML = "";
+  try{
+    const r = await api(API_BASE + "/" + pid + "/shelves/" + sid + "/scan", { method: "POST" });
+    setStatus("Scan OK", "ok");
+    showOutput(r);
+    renderWarnings(r.warnings || []);
+    await loadBins();
+    await loadLatestPhoto();
+  } catch(e){
+    if (e.status === 429 && e.data && e.data.detail && e.data.detail.error === "cooldown"){
+      setStatus("Cooldown: retry in " + e.data.detail.retry_after_seconds + "s", "warn");
+      showOutput(e.data);
+      return;
+    }
+    setStatus("Scan failed", "err");
+    showOutput(e.data || e.toString());
+  }
+}
+
+async function loadLatestPhoto(){
+  const pid = el("projectSelect").value;
+  const sid = el("shelfSelect").value;
+  if (!pid || !sid) return;
+
+  try{
+    const r = await api(API_BASE + "/" + pid + "/shelves/" + sid + "/photos_latest");
+    el("photoMeta").textContent = r.latest ? ("photos: " + r.count) : "no photos yet";
+
+    if (r.latest){
+      const rel = r.latest.replace("storage/photos/", "");
+      el("latestPhoto").src = "/photos/" + rel + "?t=" + Date.now();
+    } else {
+      el("latestPhoto").removeAttribute("src");
+    }
+  } catch(e){
+    el("photoMeta").textContent = "failed to load latest photo";
+    el("latestPhoto").removeAttribute("src");
+  }
+}
+
+async function applyAutoScan(){
+  const pid = el("projectSelect").value;
+  const sid = el("shelfSelect").value;
+  if (!pid || !sid) return;
+
+  const enabled = el("autoScanEnabled").checked;
+  const threshold = parseFloat(el("autoScanThreshold").value || "0.06");
+
+  setStatus("Updating autoscan...", "");
+  try{
+    const r = await api(API_BASE + "/" + pid + "/shelves/" + sid + "/autoscan", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        enabled: enabled,
+        threshold: threshold,
+        interval_s: 0.5,
+        roi: null
+      })
+    });
+
+    setStatus("AutoScan " + (enabled ? "enabled" : "disabled"), "ok");
+    showOutput(r);
+    await loadAutoScanStatus();
+  } catch(e){
+    setStatus("AutoScan failed", "err");
+    showOutput(e.data || e.toString());
+  }
+}
+
+async function loadAutoScanStatus(){
+  const pid = el("projectSelect").value;
+  const sid = el("shelfSelect").value;
+  if (!pid || !sid) return;
+
+  try{
+    const r = await api(API_BASE + "/" + pid + "/shelves/" + sid + "/autoscan_status");
+    const box = document.getElementById("autoscanLog");
+    if (!box) return;
+
+    const lines = [];
+    lines.push("enabled: " + (r.enabled ? "true" : "false"));
+    lines.push("cfg: " + JSON.stringify(r.cfg || {}, null, 0));
+    lines.push("last_event: " + (r.last_event ? JSON.stringify(r.last_event, null, 2) : "null"));
+
+    box.textContent = lines.join("\n");
+  } catch(e){
+    const box = document.getElementById("autoscanLog");
+    if (box) box.textContent = "autoscan_status error: " + (e.data ? JSON.stringify(e.data) : e.toString());
+  }
+}
+
+// auto-apply when checkbox is toggled
+document.addEventListener("DOMContentLoaded", () => {
+  const cb = document.getElementById("autoScanEnabled");
+  if (cb){
+    cb.addEventListener("change", () => applyAutoScan());
+  }
+});
+
+refreshProjects()
+  .then(() => loadAutoScanStatus())
+  .catch(err => showOutput(err.toString()));
+
+
+setInterval(() => {
+  if (document.hidden) return;
+  const cb = document.getElementById("autoScanEnabled");
+  if (cb && cb.checked) loadAutoScanStatus();
+}, 1000);
+
+setInterval(() => {
+  if (document.hidden) return;
+
+  const cb = document.getElementById("autoScanEnabled");
+  if (!(cb && cb.checked)) return;
+
+  loadAutoScanStatus();   // shows motion/trigger events
+  loadBins();             // refresh qty table
+  loadLatestPhoto();      // refresh image
+}, 5000);
+
+
+</script>
+
+</body>
+</html>

@@ -1,3 +1,5 @@
+# storage/db.py
+
 import sqlite3
 from pathlib import Path
 from datetime import datetime
@@ -16,7 +18,6 @@ def _conn():
     return con
 
 
-
 def init_db():
     with _conn() as con:
         con.execute("""
@@ -26,11 +27,6 @@ def init_db():
             created_at TEXT NOT NULL
         )
         """)
-        con.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_bins_shelf_code
-            ON bins(shelf_id, bin_code)
-        """)
-
 
         con.execute("""
         CREATE TABLE IF NOT EXISTS shelves (
@@ -55,12 +51,35 @@ def init_db():
             FOREIGN KEY(shelf_id) REFERENCES shelves(id)
         )
         """)
-        
+
         con.execute("""
-           CREATE UNIQUE INDEX IF NOT EXISTS idx_bins_shelf_code
-           ON bins(shelf_id, bin_code)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_bins_shelf_code
+        ON bins(shelf_id, bin_code)
         """)
 
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS last_scan (
+            shelf_id INTEGER NOT NULL,
+            bin_code TEXT NOT NULL,
+
+            prev_qty INTEGER,
+            prev_observed_product TEXT,
+            prev_mismatch INTEGER,
+            prev_scanned_at TEXT,
+
+            last_qty INTEGER,
+            last_observed_product TEXT,
+            last_mismatch INTEGER,
+            last_scanned_at TEXT,
+
+            PRIMARY KEY (shelf_id, bin_code)
+        )
+        """)
+
+        con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_last_scan_shelf_time
+        ON last_scan(shelf_id, last_scanned_at)
+        """)
 
         con.commit()
 
@@ -92,7 +111,12 @@ def create_shelf(project_id: int, name: str):
             (project_id, name, created_at),
         )
         con.commit()
-        return {"id": cur.lastrowid, "project_id": project_id, "name": name, "created_at": created_at}
+        return {
+            "id": cur.lastrowid,
+            "project_id": project_id,
+            "name": name,
+            "created_at": created_at,
+        }
 
 
 def list_shelves(project_id: int):
@@ -115,7 +139,8 @@ def create_bin(
     created_at = datetime.utcnow().isoformat()
     with _conn() as con:
         cur = con.execute(
-            "INSERT INTO bins(shelf_id, bin_code, label, product_name, description, qty, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO bins(shelf_id, bin_code, label, product_name, description, qty, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?)",
             (shelf_id, bin_code, label, product_name, description, qty, created_at),
         )
         con.commit()
@@ -134,7 +159,8 @@ def create_bin(
 def list_bins(shelf_id: int):
     with _conn() as con:
         rows = con.execute(
-            "SELECT id, shelf_id, bin_code, label, product_name, description, qty, created_at FROM bins WHERE shelf_id=? ORDER BY id DESC",
+            "SELECT id, shelf_id, bin_code, label, product_name, description, qty, created_at "
+            "FROM bins WHERE shelf_id=? ORDER BY id DESC",
             (shelf_id,),
         ).fetchall()
     return [
@@ -231,7 +257,8 @@ def update_bin_qty_by_code(shelf_id: int, bin_code: str, qty: int | None):
             (qty, shelf_id, bin_code),
         )
         con.commit()
-    
+
+
 def update_bin_by_id(bin_id: int, patch: dict):
     allowed = ["label", "product_name", "description", "qty"]
     if "sku" in patch:
@@ -254,8 +281,6 @@ def update_bin_by_id(bin_id: int, patch: dict):
         con.execute(f"UPDATE bins SET {', '.join(fields)} WHERE id=?", vals)
         con.commit()
 
-        # return updated row
-        # include sku if your table has it
         row = con.execute(
             "SELECT id, shelf_id, bin_code, label, product_name, description, qty, created_at FROM bins WHERE id=?",
             (bin_id,),
@@ -275,7 +300,79 @@ def update_bin_by_id(bin_id: int, patch: dict):
         "created_at": row[7],
     }
 
+
 def project_exists(project_id: int) -> bool:
     with _conn() as con:
-        row = con.execute("SELECT 1 FROM projects WHERE id=? LIMIT 1", (project_id,)).fetchone()
+        row = con.execute(
+            "SELECT 1 FROM projects WHERE id=? LIMIT 1",
+            (project_id,),
+        ).fetchone()
     return row is not None
+
+
+def upsert_last_scan_shift(
+    shelf_id: int,
+    bin_code: str,
+    qty: int | None,
+    observed_product: str | None,
+    mismatch: int,
+    scanned_at: str,
+):
+    with _conn() as con:
+        con.execute(
+            """
+            INSERT INTO last_scan(
+                shelf_id, bin_code,
+                prev_qty, prev_observed_product, prev_mismatch, prev_scanned_at,
+                last_qty, last_observed_product, last_mismatch, last_scanned_at
+            )
+            VALUES(?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
+            ON CONFLICT(shelf_id, bin_code) DO UPDATE SET
+                prev_qty = last_scan.last_qty,
+                prev_observed_product = last_scan.last_observed_product,
+                prev_mismatch = last_scan.last_mismatch,
+                prev_scanned_at = last_scan.last_scanned_at,
+
+                last_qty = excluded.last_qty,
+                last_observed_product = excluded.last_observed_product,
+                last_mismatch = excluded.last_mismatch,
+                last_scanned_at = excluded.last_scanned_at
+            """,
+            (shelf_id, bin_code, qty, observed_product, mismatch, scanned_at),
+        )
+        con.commit()
+
+
+def get_last_scan_map(shelf_id: int) -> dict[str, dict]:
+    with _conn() as con:
+        rows = con.execute(
+            """
+            SELECT bin_code,
+                   prev_qty, prev_scanned_at,
+                   last_qty, last_scanned_at,
+                   last_mismatch
+            FROM last_scan
+            WHERE shelf_id=?
+            """,
+            (shelf_id,),
+        ).fetchall()
+
+    m: dict[str, dict] = {}
+    for r in rows:
+        m[r[0]] = {
+            "prev_qty": r[1],
+            "prev_scanned_at": r[2],
+            "last_qty": r[3],
+            "last_scanned_at": r[4],
+            "last_mismatch": r[5],
+        }
+    return m
+
+
+def get_shelf_last_scan_time(shelf_id: int) -> str | None:
+    with _conn() as con:
+        row = con.execute(
+            "SELECT MAX(last_scanned_at) FROM last_scan WHERE shelf_id=?",
+            (shelf_id,),
+        ).fetchone()
+    return row[0] if row and row[0] else None

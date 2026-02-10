@@ -14,3 +14,9 @@ __pycache__/
 .venv/
 storage/photos/
 storage/inventory.db*/n
+__pycache__/
+*.pyc
+.env
+.venv/
+storage/photos/
+storage/inventory.db*/n
