@@ -4,8 +4,6 @@
 
 A Linux edge application that uses a camera, OpenCV motion detection, and Gemini vision to monitor labeled inventory bins.
 
-The custom green-bordered bins were designed and 3D-printed by **Ender Celik**. Labels such as `A-01` and `B-02` provide consistent visual references for the vision model.
-
 ## How it works
 
 1. Create a project and shelf, then run **Setup Analyze**.
@@ -17,7 +15,7 @@ The custom green-bordered bins were designed and 3D-printed by **Ender Celik**. 
 
 ## Main features
 
-- USB-camera integration
+- USB camera integration
 - OpenCV motion and stability detection
 - Structured Gemini vision responses
 - FastAPI backend and browser interface
@@ -64,6 +62,11 @@ python -m unittest discover -s tests
 
 ## Author
 
-Developed by **Ender Celik** as part of an industrial automation, SCADA/MES, and IIoT engineering portfolio.
+Developed by [**Ender Celik**](https://github.com/celikender) as part of an industrial automation, SCADA/MES, and IIoT engineering portfolio.
 
-[vMaint](https://vmaint.com/)
+The custom labeled bins used in this prototype were designed and 3D-printed by Ender Celik.
+
+## Other projects
+
+- [vLock Digital LOTO](https://github.com/celikender/vLock-Digital-LOTO) - an Inductive Automation Ignition Perspective project demonstrating digital LOTO tracking
+- [vMaint](https://vmaint.com/) - a manufacturing operations and maintenance platform
