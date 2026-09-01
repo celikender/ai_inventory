@@ -25,6 +25,15 @@
   <div id="content" style="margin-top:12px;"></div>
 
 <script>
+function escapeHtml(value){
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 async function load(){
   const pid = document.getElementById("pid").value;
   const res = await fetch("/projects/" + pid + "/dash");
@@ -41,8 +50,8 @@ async function load(){
 
   let html = "";
   for (const sh of data.shelves){
-    html += "<h3>" + sh.shelf_name + " (id " + sh.shelf_id + ")</h3>";
-    html += "<div class='muted'>day_utc: " + sh.day_utc + "</div>";
+    html += "<h3>" + escapeHtml(sh.shelf_name) + " (id " + escapeHtml(sh.shelf_id) + ")</h3>";
+    html += "<div class='muted'>day_utc: " + escapeHtml(sh.day_utc) + "</div>";
     html += "<table><thead><tr>" +
       "<th>bin</th><th>product</th><th>qty</th><th>delta today</th><th>warning</th>" +
       "</tr></thead><tbody>";
@@ -50,10 +59,10 @@ async function load(){
     for (const b of sh.bins){
       const warn = (b.mismatch === 1) ? "MISMATCH" : "";
       html += "<tr>" +
-        "<td>" + (b.bin_code ?? "") + "</td>" +
-        "<td>" + (b.product_name ?? "") + "</td>" +
-        "<td>" + (b.qty ?? "") + "</td>" +
-        "<td>" + (b.delta_today ?? "") + "</td>" +
+        "<td>" + escapeHtml(b.bin_code) + "</td>" +
+        "<td>" + escapeHtml(b.product_name) + "</td>" +
+        "<td>" + escapeHtml(b.qty) + "</td>" +
+        "<td>" + escapeHtml(b.delta_today) + "</td>" +
         "<td class='" + (warn ? "bad" : "") + "'>" + warn + "</td>" +
       "</tr>";
     }

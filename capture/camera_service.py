@@ -1,7 +1,12 @@
 # capture/camera_service.py
 import cv2
+import os
 import threading
 import time
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class CameraService:
@@ -29,6 +34,10 @@ class CameraService:
             return
 
         cap = cv2.VideoCapture(self.src)
+        if not cap.isOpened():
+            cap.release()
+            return
+
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
@@ -72,5 +81,16 @@ class CameraService:
             return self.current_frame.copy()
 
 
-# singleton instance
-cam_service = CameraService()
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+# Singleton configured through environment variables for Raspberry Pi or laptop use.
+cam_service = CameraService(
+    src=_env_int("CAMERA_DEVICE_INDEX", 0),
+    width=_env_int("CAMERA_WIDTH", 1280),
+    height=_env_int("CAMERA_HEIGHT", 720),
+)

@@ -1,22 +1,18 @@
+# Local configuration
 .env
-.venv
+.venv/
+
+# Python-generated files
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+
+# Runtime inventory data and captured images
 storage/photos/
-storage/inventory.db
-storage/inventory.db-*
 storage/*.db
 storage/*.db-*
 
-__pycache__/
-*.pyc
-.env
-.venv/
-storage/photos/
-storage/inventory.db*/n
-__pycache__/
-*.pyc
-.env
-.venv/
-storage/photos/
-storage/inventory.db*/n
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/

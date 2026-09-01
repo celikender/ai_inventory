@@ -13,6 +13,7 @@ from capture.usb_cam import take_photo
 from capture.camera_service import cam_service
 
 from storage.db import (
+    PHOTOS_DIR,
     init_db,
     create_project,
     list_projects,
@@ -32,6 +33,7 @@ from storage.db import (
 
 from storage.models import ProjectCreate, ShelfCreate, BinCreate, BinPatch
 from ai.gemini_client import gemini_analyze_image
+from ai.parsing import extract_json_array
 from ai.prompts import SETUP_PROMPT, SCAN_PROMPT_TEMPLATE
 from ai.config import load_ai_config
 
@@ -68,29 +70,11 @@ def _get_frame():
     if frame is not None:
         return frame
 
-    return take_photo(device_index=0, width=1280, height=720)
-
-
-def extract_json_array(text: str) -> str:
-    if not text:
-        return ""
-    s = text.strip()
-
-    start = s.find("[")
-    if start == -1:
-        return ""
-
-    depth = 0
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "[":
-            depth += 1
-        elif ch == "]":
-            depth -= 1
-            if depth == 0:
-                return s[start : i + 1]
-
-    return ""
+    return take_photo(
+        device_index=cam_service.src,
+        width=cam_service.width,
+        height=cam_service.height,
+    )
 
 
 def _norm(s: str | None) -> str:
@@ -160,6 +144,9 @@ def _scan_shelf_core(project_id: int, shelf_id: int, frame):
     scanned_at = datetime.utcnow().isoformat()
 
     for item in data:
+        if not isinstance(item, dict):
+            continue
+
         code = (item.get("bin_code") or "").strip()
         if code not in known_codes:
             continue
@@ -296,6 +283,9 @@ def setup_analyze(
         clean = []
         seen = set()
         for b in data:
+            if not isinstance(b, dict):
+                continue
+
             code = (b.get("bin_code") or "").strip()
             if not code:
                 continue
@@ -322,10 +312,12 @@ def setup_analyze(
 
 @router.get("/{project_id}/shelves/{shelf_id}/photos_latest")
 def photos_latest(project_id: int, shelf_id: int):
-    from pathlib import Path
-    folder = Path("storage") / "photos" / str(project_id) / str(shelf_id)
+    folder = PHOTOS_DIR / str(project_id) / str(shelf_id)
     files = sorted(folder.glob("*.jpg"), reverse=True)
-    return {"latest": str(files[0]) if files else None, "count": len(files)}
+    latest = None
+    if files:
+        latest = f"storage/photos/{files[0].relative_to(PHOTOS_DIR).as_posix()}"
+    return {"latest": latest, "count": len(files)}
 
 
 @router.post("/{project_id}/shelves/{shelf_id}/scan")

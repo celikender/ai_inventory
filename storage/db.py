@@ -5,7 +5,10 @@ from pathlib import Path
 from datetime import datetime
 import cv2
 
-DB_PATH = Path("storage") / "inventory.db"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+STORAGE_DIR = PROJECT_ROOT / "storage"
+PHOTOS_DIR = STORAGE_DIR / "photos"
+DB_PATH = STORAGE_DIR / "inventory.db"
 
 
 def _conn():
@@ -180,11 +183,12 @@ def list_bins(shelf_id: int):
 
 def save_shelf_photo(project_id: int, shelf_id: int, frame):
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-    folder = Path("storage") / "photos" / str(project_id) / str(shelf_id)
+    folder = PHOTOS_DIR / str(project_id) / str(shelf_id)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{ts}.jpg"
-    cv2.imwrite(str(path), frame)
-    return str(path)
+    if not cv2.imwrite(str(path), frame):
+        raise RuntimeError(f"Failed to write shelf photo: {path}")
+    return path.relative_to(PROJECT_ROOT).as_posix()
 
 
 def delete_bins_for_shelf(shelf_id: int):
@@ -261,8 +265,6 @@ def update_bin_qty_by_code(shelf_id: int, bin_code: str, qty: int | None):
 
 def update_bin_by_id(bin_id: int, patch: dict):
     allowed = ["label", "product_name", "description", "qty"]
-    if "sku" in patch:
-        allowed.append("sku")
 
     fields = []
     vals = []

@@ -20,4 +20,3 @@ class BinPatch(BaseModel):
     product_name: Optional[str] = None
     description: Optional[str] = None
     qty: Optional[int] = None
-    sku: Optional[str] = None
